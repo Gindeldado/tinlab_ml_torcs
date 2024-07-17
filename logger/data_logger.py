@@ -4,29 +4,45 @@ import pandas as pd
 
 class log():
     def __init__(self):
-        self.fields = ["targetSpeed", "command.steering", "speed", "carstate.angle", "distance_from_center",
-                   "track_edge_0",
-                   "track_edge_1",
-                   "track_edge_2",
-                   "track_edge_3",
-                   "track_edge_4",
-                   "track_edge_5",
-                   "track_edge_6",
-                   "track_edge_7",
-                   "track_edge_8",
-                   "track_edge_9",
-                   "track_edge_10",
-                   "track_edge_11",
-                   "track_edge_12",
-                   "track_edge_13",
-                   "track_edge_14",
-                   "track_edge_15",
-                   "track_edge_16",
-                   "track_edge_17",
-                   "track_edge_18"
+        self.file_name = ""
+        self.fields = [
+            "TARGET_SPEED",
+            "STEERING",
+            "SPEED",
+            "ANGLE_TO_TRACK_AXIS",
+            "TRACK_POSITION",
+            "TRACK_EDGE_0",
+            "TRACK_EDGE_1",
+            "TRACK_EDGE_2",
+            "TRACK_EDGE_3",
+            "TRACK_EDGE_4",
+            "TRACK_EDGE_5",
+            "TRACK_EDGE_6",
+            "TRACK_EDGE_7",
+            "TRACK_EDGE_8",
+            "TRACK_EDGE_9",
+            "TRACK_EDGE_10",
+            "TRACK_EDGE_11",
+            "TRACK_EDGE_12",
+            "TRACK_EDGE_13",
+            "TRACK_EDGE_14",
+            "TRACK_EDGE_15",
+            "TRACK_EDGE_16",
+            "TRACK_EDGE_17",
+            "TRACK_EDGE_18",
+            "OPPONENT_0",
+            "OPPONENT_1",
+            "OPPONENT_2",
+            "OPPONENT_3",
+            "OPPONENT_4",
+            "OPPONENT_5",
+            "OPPONENT_6",
+            "OPPONENT_7",
+            "OPPONENT_8",
         ]
 
-        self.csvfile = open("ml/logger/DataLog.csv", 'w', newline='')
+    def start(self):
+        self.csvfile = open(f"logger/{self.file_name}.csv", 'w', newline='')
         # creating a csv dict writer object
         self.writer = csv.writer(self.csvfile, delimiter=',', quoting=csv.QUOTE_NONNUMERIC)
         # writing headers (field names)

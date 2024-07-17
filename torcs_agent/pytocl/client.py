@@ -2,19 +2,26 @@ import math
 from pytocl.main import main
 from pytocl.driver import Driver
 from pytocl.car import State, Command
-import pytocl.controller
 
+import sys
+import os
+# print("Current working directory:", os.getcwd())
+sys.path.append(os.getcwd())
+# print("Python path after modification:", sys.path)
+
+from logger import data_logger
 DEGREE_PER_RADIANS = 180 / math.pi
 MPS_PER_KMH = 1000 / 3600
-DEFAULT_MIN_SPEED = 40
+DEFAULT_MIN_SPEED = 50
 DEFAULT_MAX_SPEED = 330
 SENSOR_SPEED_ALTERATIONS = (0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.6, 0.4, 0.2, 0, 0.2, 0.4, 0.6, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8)
 SENSOR_ANGLES = (-90, -75, -60, -45, -30, -20, -15, -10, -5, 0, 5, 10, 15, 20, 30, 45, 60, 75, 90)
 
 
-class Log_agent(Driver):
-    def __init__(self):
+class Agent(Driver):
+    def __init__(self, log=False):
         super().__init__()
+        self.log = log
         self.tick_counter = 0
         self.opp_spotted = False
         self.opp_driver_dir = 0
@@ -27,6 +34,11 @@ class Log_agent(Driver):
         self.prev_front_edges = [0,0,0,0,0]
         self.prev_speed = 0
 
+        if log == True:
+            self.log_obj = data_logger.log()
+            self.log_obj.file_name = "aalborg_3"
+            self.log_obj.start()
+
     def opponent_avoidance(self, carstate: State):
         ''' ### Opponents overtaking and avoidance ###
         1. Check opponents sensors (divide them in groups)
@@ -38,8 +50,8 @@ class Log_agent(Driver):
         op_f_m = carstate.opponents[16:21] # front middel 
         op_f_r = carstate.opponents[19:23] # front right side
         op_f_l = carstate.opponents[14:18] # front left side
-        tk_l = carstate.distances_from_edge[:18]    
-        tk_r = carstate.distances_from_edge[18:]
+        # tk_l = carstate.distances_from_edge[:18]    
+        # tk_r = carstate.distances_from_edge[18:]
 
         close_cont_sides = 10
         close_cont_front = 50
@@ -56,8 +68,24 @@ class Log_agent(Driver):
         left_close = min(op_f_l) < close_cont_sides
         right_close = min(op_f_r) < close_cont_sides   
         front_close = min(op_f_m ) < close_cont_front
+        very_close_front =  min(op_f_m ) < 10
+        if very_close_front:
+            # drive slower
+            self.opp_new_ts = DEFAULT_MIN_SPEED * 2
+            self.opp_spotted = True
+            if min(op_f_l) < min(op_f_r):
+                print("FRONT DANGER: STEERING RIGHT!")
+                self.opp_driver_dir = -0.5
+            elif min(op_f_l) < 10 and min(op_f_r) < 10:
+                self.opp_new_ts = DEFAULT_MIN_SPEED 
+                print("FRONT DANGER: STEERING center!")
+                self.opp_driver_dir = 0.0
+            else:
+                print("FRONT DANGER: STEERING Left!")
+                self.opp_driver_dir = 0.5
+            return
         if left_close or right_close:
-            self.opp_new_ts = 1
+            self.opp_new_ts = DEFAULT_MAX_SPEED
             self.opp_spotted = True
             if min(op_f_l) < min(op_f_r):
                 print("SIDE DANGER: STEERING right!")
@@ -67,7 +95,7 @@ class Log_agent(Driver):
                 self.opp_driver_dir = steer_cor
             return
         if front_close:
-            self.opp_new_ts = 1
+            self.opp_new_ts = DEFAULT_MAX_SPEED
             # it should also just accelrate more?
             self.opp_spotted = True
             # it should maybe ride longer to the side?
@@ -80,35 +108,6 @@ class Log_agent(Driver):
                 self.opp_driver_dir = steer_cor
             return
 
-        # 2 situaties
-
-
-        # print(f"TRACK edge L: {min(tk_l)}\nTRACK edge R: {min(tk_r)}")
-        # if min(op_f_l) < close_cont_sides or min(op_f_r)  < close_cont_sides or min(op_f_m ) < close_cont_front:
-        #     # Reduce speed and
-        #     # decide where to take a fast turn 
-        #     if min(op_f_l) < min(op_f_r) and min(op_f_l) < close_cont_sides or min(op_f_r) < close_cont_sides:
-        #         print("RIGHT IS SAFE!")
-        #         self.opp_driver_dir = steer_cor
-        #         self.opp_spotted = True
-        #         pass # right is safe
-        #     else:
-        #         print("left IS SAFE!")
-        #         self.opp_driver_dir = steer_cor
-        #         self.opp_spotted = True
-        #         pass #left is safe 
-
-        #     if min(op_f_m ) < close_cont_front:
-        #         print("FRONT IS approching danger!!!")
-        #         self.opp_new_ts = 1 # multiplier for new tatgerspeed
-        #     else:
-        #      pass
-        # print(f"Car spotted front right: {min(op_f_r)}")
-        # print(f"Car spotted front left: {min(op_f_l)}")
-        # print(f"Car spotted front mid: {op_f_m}")
-        # print(f"Car distance track right: {min(tk_l)}")
-        # print(f"Car distance track left: {min(tk_r)}")
-
     def un_stuck(self, speed, carstate: State, command: Command):
         car_angle_stuck = abs(carstate.angle) > self.angle_threshold 
         print(f"STUCK_TICKS={self.stuck_ticks} | speed: {speed}")
@@ -117,23 +116,23 @@ class Log_agent(Driver):
                 return
         else:
             self.stuck_ticks += 1
-            if self.stuck_ticks == 300:
+            if self.stuck_ticks == 200:
                 print("STUCK!")
                 self.stuck = True
 
         if not self.stuck:
             return
 
-        if self.stuck_ticks < 450:
+        if self.stuck_ticks < 300:
             # reverse
             command.steering = 0.0
             command.gear = -1
-            command.accelerator= 0.1 
-        elif self.stuck_ticks == 450:
+            command.accelerator= 0.3 
+        elif self.stuck_ticks == 300:
             command.gear = 0
             command.accelerator = 0
             command.brake = 1
-        elif self.stuck_ticks < 500:
+        elif self.stuck_ticks < 350:
             command.gear = 1
             command.accelerator = 0.1
             command.brake = 0
@@ -174,20 +173,8 @@ class Log_agent(Driver):
         brakeZone = closest_edge[0] < speed_kmh / 1.5
 
         # [9] = 0deg 78910 11 12
-        front_edges = carstate.distances_from_edge[7:12]
-        # prev_avr = -1 if len(self.prev_front_edges) == 0 else sum(self.prev_front_edges)/len(self.prev_front_edges)
-        # curr_avr = sum(front_edges)/len(front_edges)
+        # front_edges = carstate.distances_from_edge[7:12]
 
-        # delta_avr = 0 if prev_avr < 0 else prev_avr/curr_avr  
-        # min(front_edges) < 20 accel los
-        # min(front_edges) < 15 drop to min snelheid
-        # print(f"DIFF: {sum(self.prev_front_edges)/sum(front_edges)}")
-        # print(f"prevedges: {self.prev_front_edges}\t speed: {speed_kmh}\t prev_speed: {speed_kmh}\t delta_speed: {self.prev_speed/speed_kmh}")
-        # print(f"EDGES MANNN: {front_edges}\tclosest={min(front_edges)}\tavr: {sum(front_edges)/len(front_edges)}")
-        # print(f"breakzone={brakeZone} closest edge: {closest_edge[0]}, mps: {speed_kmh / 1.5}")
-        
-        
-        # Steer always to middle op track 
         target_track_pos = 0.0
 
         ''' ### Opponents overtaking and avoidance ###
@@ -204,49 +191,42 @@ class Log_agent(Driver):
             targetSpeed = DEFAULT_MIN_SPEED#max(DEFAULT_MIN_SPEED, speed_kmh-5)
         else:
             targetSpeed = DEFAULT_MAX_SPEED
-        
-        # if min(front_edges) < 10:
-        #     targetSpeed = DEFAULT_MIN_SPEED
-        # else:
-        #     targetSpeed = DEFAULT_MAX_SPEED
 
         
         if self.opp_spotted == True:
             target_track_pos = self.opp_driver_dir
             self.tick_counter += 1
-            if self.tick_counter < 200:
-                targetSpeed *= self.opp_new_ts
-            else:
-                if brakeZone == False:
-                    targetSpeed = DEFAULT_MAX_SPEED
+            if self.tick_counter < 400:
+                targetSpeed == self.opp_new_ts
+            if brakeZone == True:
+                targetSpeed = DEFAULT_MIN_SPEED
 
-            if self.tick_counter == 200:
+            if self.tick_counter == 400:
                 self.opp_spotted = False
                 self.tick_counter = 0
-        # nearest_opp
-        # print(f"opps: {carstate.opponents}")
-
         
         self.steer(carstate, target_track_pos, command)
         # print(f"steer: {command.steering}\nticks: {self.tick_counter}")
         
 
         self.accelerate(carstate, targetSpeed, command)
-        # if sum(front_edges)/len(front_edges) > 10 and sum(front_edges)/len(front_edges) < 20:
-        #     # dont accelerate
-        #     command.accelerator = 0
-        # print(f"Car angle axis={carstate.angle}\nEDGES:{carstate.distances_from_edge}")
-        # print(f"accel: {command.accelerator}\nbrake: {command.brake}")       
-        # self.self_destruct_tick +=1
-        # print(f"selfdestruct={self.self_destruct_tick}")
-        # if(self.self_destruct_tick > 500 and self.destru == True):
-        #     print("SELF DESTRUCT!!")
-        #     command.steering = 0.0
-        self.prev_front_edges = front_edges
-        self.prev_speed = speed_kmh
+
+        if self.log == True:
+            spd = 1 if targetSpeed == DEFAULT_MAX_SPEED else 0
+            data = [spd,
+                    command.steering, 
+                    speed_kmh,
+                    carstate.angle, 
+                    carstate.distance_from_center]
+            for e in carstate.distances_from_edge:
+                data.append(e)
+            for o in carstate.opponents[14:23]:
+                data.append(o)
+        
+            self.log_obj.log_data(data=data)
         return command
 
 
 
 if __name__ == '__main__':
-    main(Log_agent())
+    main(Agent(log=False))
