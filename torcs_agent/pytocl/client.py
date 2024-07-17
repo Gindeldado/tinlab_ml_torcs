@@ -12,10 +12,17 @@ sys.path.append(os.getcwd())
 from logger import data_logger
 DEGREE_PER_RADIANS = 180 / math.pi
 MPS_PER_KMH = 1000 / 3600
-DEFAULT_MIN_SPEED = 50
+DEFAULT_MIN_SPEED = 40
 DEFAULT_MAX_SPEED = 330
 SENSOR_SPEED_ALTERATIONS = (0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.6, 0.4, 0.2, 0, 0.2, 0.4, 0.6, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8)
 SENSOR_ANGLES = (-90, -75, -60, -45, -30, -20, -15, -10, -5, 0, 5, 10, 15, 20, 30, 45, 60, 75, 90)
+
+# class Edge():
+#     def __init__(self):
+#         self.degree = 0.0
+#         self.danger_level = 0
+    
+#     def get_danger(dist :int) -> int:
 
 
 class Agent(Driver):
@@ -109,8 +116,8 @@ class Agent(Driver):
             return
 
     def un_stuck(self, speed, carstate: State, command: Command):
-        car_angle_stuck = abs(carstate.angle) > self.angle_threshold 
-        print(f"STUCK_TICKS={self.stuck_ticks} | speed: {speed}")
+        car_angle_stuck = abs(carstate.angle) > self.angle_threshold and speed < 1
+        # print(f"STUCK_TICKS={self.stuck_ticks} | speed: {speed}")
         if not car_angle_stuck:
             if speed > 10:
                 return
@@ -141,6 +148,32 @@ class Agent(Driver):
             self.destru = False
             self.stuck_ticks = 0
 
+    def better_corner_taking(self, carstate: State, command: Command):
+        # print("taking corner")
+        left_side = carstate.distances_from_edge[:9]
+        center = carstate.distances_from_edge[9]
+        right_side = carstate.distances_from_edge[10:]
+
+        front = [#carstate.distances_from_edge[7],
+                 carstate.distances_from_edge[8],
+                 carstate.distances_from_edge[10],
+                #carstate.distances_from_edge[11]
+                ]
+
+        take_corner_thresh = 45
+        mid = len(front) // 2
+        # check eerst of het in range komt can corner taking!
+        # print(f"angle car({carstate.angle}) avr dis: {sum(front)/len(front)}, left[{sum(front[:mid])}] right[{sum(front[mid:])}]")
+        take_corner = sum(front)/len(front) < take_corner_thresh
+        # if take_corner:
+        #     if sum(front[:mid]) > sum(front[mid:]): #or [0]/[2] = "een bep pos helling"
+        #         print("rij naar rechts, dus buiten bocht")
+        #     else:
+        #         print("rij naar links, dus buiten bocht")
+
+        return sum(front)/len(front), take_corner_thresh
+        # totdat een edge sensor van de andere kant x is 
+        # neem dan de andere kant 
 
 
     def drive( self, carstate: State) -> Command:
@@ -224,6 +257,46 @@ class Agent(Driver):
                 data.append(o)
         
             self.log_obj.log_data(data=data)
+
+        accel_states = {"BRAKE":0, "DE_ACCEL":1, "ACCEL":2, "SLOW_BRAKE":3}
+        accel_state = 2
+        angl_good =  abs(carstate.angle) < 7
+        corner_dis, brake_dis = self.better_corner_taking(carstate,command)
+        # if corner_dis < 50 and corner_dis > 40 and angl_good and speed_kmh > 100:
+        #     accel_state = accel_states["DE-ACCEL"] 
+        # elif speed_kmh > 250 and corner_dis < 90:
+        #     accel_state = accel_states["DE-ACCEL"] 
+        
+
+        # if we are at minimum speed just slowly take corner
+        if corner_dis < 40 and speed_kmh > 55 and speed_kmh < 80:
+            accel_state = accel_states["DE_ACCEL"]
+        # almost at edge so better brake! if we are to fast 
+        elif corner_dis < 40 and angl_good and speed_kmh > 80:
+            accel_state = accel_states["BRAKE"]
+        else:
+            pass
+       
+        if speed_kmh > 220 and corner_dis < 66:
+            print("TOO FAST AND CLOSSSEE!!!\nTOO FAST AND CLOSSSEE!!!\nTOO FAST AND CLOSSSEE!!!\nTOO FAST AND CLOSSSEE!!!\nTOO FAST AND CLOSSSEE!!!\nTOO FAST AND CLOSSSEE!!!\n")
+            accel_state = accel_states["DE_ACCEL"]
+        elif speed_kmh > 120 and corner_dis < 56.5:
+            accel_state = accel_states["BRAKE"]
+
+        if accel_state == accel_states["BRAKE"]:
+            command.brake = 1
+            command.accelerator = 0
+        elif accel_state == accel_states["DE_ACCEL"]:
+            command.brake = 0
+            command.accelerator = 0
+        elif accel_state == accel_states["SLOW_BRAKE"]:
+            command.brake = 0.3
+            command.accelerator = 0
+        else:
+            command.accelerator = 1
+            command.brake = 0
+
+        print(f"carspeed: [{speed_kmh}]\t corner_dis:[{corner_dis}]")
         return command
 
 
