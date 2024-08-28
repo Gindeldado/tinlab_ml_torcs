@@ -4,19 +4,22 @@ import numpy as np
 # print("TensorFlow version:", tf.__version__)
 
 class MLP_TF():
-  actuators = [ "ACCELERATION", "BRAKE", "STEERING"]
+  actuators = [ "ACCEL_STATE", "STEERING"]
   selectedSensors = [ 
           "SPEED",
-          "TRACK_POSITION",
           "ANGLE_TO_TRACK_AXIS",
+          "TRACK_POSITION",
           "TRACK_EDGE_0",
           "TRACK_EDGE_1",
-          "TRACK_EDGE_2",
-          "TRACK_EDGE_3",
-          "TRACK_EDGE_4",
-          "TRACK_EDGE_5",
-          "TRACK_EDGE_6",
-          "TRACK_EDGE_7",
+          "OPPONENT_0",
+          "OPPONENT_1",
+          "OPPONENT_2",
+          "OPPONENT_3",
+          "OPPONENT_4",
+          "OPPONENT_5",
+          "OPPONENT_6",
+          "OPPONENT_7",
+          "OPPONENT_8",
   ]
   def __init__(self) -> None:
         self.norm = None
@@ -42,5 +45,5 @@ class MLP_TF():
   
   def predict(self, inputVector):
       # self.mlp.set
-      pred = self.mlp.predict(inputVector.reshape(1,11))
+      pred = self.mlp.predict(inputVector.reshape(1,14))
       return pred
