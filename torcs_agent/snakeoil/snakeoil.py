@@ -55,6 +55,7 @@
 import socket 
 import sys
 import getopt
+import math
 PI= 3.14159265359
 
 # Initialize help messages
@@ -283,52 +284,308 @@ def clip(v,lo,hi):
     elif v>hi: return hi
     else: return v
 
+def improved_steering_control(S, R, target_speed):
+        PI = math.pi
+        # Steer to Corner
+        R['steer'] = S['angle'] * 10 / PI
+        print(f"[steering module] Initial steering based on angle: {R['steer']}")
+
+        # Steer to Center
+        R['steer'] -= S['trackPos'] * 0.70
+        print(f"[steering module] Steering after track position adjustment: {R['steer']}")
+
+        # High-Speed Adjustment Using Sensor Data
+        if S['speedX'] > 90 * 0.8:
+            # Get sensor readings (assuming S['track'] holds the sensor distances)
+            sensor_readings = S['track']
+            angles = [-90, -75, -60, -45, -30, -20, -15, -10, -5, 0, 5, 10, 15, 20, 30, 45, 60, 75, 90]
+
+            # Calculate a weighted adjustment based on sensor data
+            weighted_sum = 0
+            weight_total = 0
+            for i in range(len(sensor_readings)):
+                if sensor_readings[i] != -1:
+                    angle = angles[i]
+                    weight = 1 / (abs(angle) + 1)  # Weight inversely proportional to angle
+                    weighted_sum += sensor_readings[i] * weight
+                    weight_total += weight
+
+            if weight_total > 0:
+                average_distance = weighted_sum / weight_total
+            else:
+                average_distance = 100  # Default value if all sensors are off track
+
+            # Adjust steering based on the average distance
+            # The correction factor can be tuned for better performance
+            correction_factor = 0.07
+            if average_distance < 50:
+                R['steer'] -= correction_factor * (50 - average_distance) / 50
+            else:
+                R['steer'] += correction_factor * (average_distance - 50) / 150
+            print(f"[steering module] Steering after high-speed adjustment: {R['steer']}")
+
+            # Clip the steering value to ensure it's within the valid range
+            R['steer'] = clip(R['steer'], -1, 1)
+            print(f"[steering module] Final clipped steering: {R['steer']}")
+
+def improved_throttle_control(S, R, target_speed):
+    PI = math.pi
+
+    # Throttle Control Based on Target Speed and Steering
+    if S['speedX'] < target_speed - (R['steer'] * 50):
+        R['accel'] += 0.01
+        print("[throttle control] increasing speed!!")
+    else:
+        print("[throttle control] decreasing speed!")
+        R['accel'] -= 0.01
+
+
+    # Traction Control System
+    if ((S['wheelSpinVel'][2] + S['wheelSpinVel'][3]) -
+       (S['wheelSpinVel'][0] + S['wheelSpinVel'][1]) > 5):
+        R['accel'] -= 0.2
+
+    # Additional Speed Adjustment Based on Track Curvature
+    sensor_readings = S['track']
+    angles = [-90, -75, -60, -45, -30, -20, -15, -10, -5, 0, 5, 10, 15, 20, 30, 45, 60, 75, 90]
+
+    # Calculate a weighted curvature measure
+    weighted_sum = 0
+    weight_total = 0
+    for i in range(len(sensor_readings)):
+        if sensor_readings[i] != -1:
+            angle = angles[i]
+            if abs(angle) <= 10:
+                weight = 1  # Highest weight for front-center sensors
+            elif abs(angle) <= 30:
+                weight = 0.01  # Medium weight for front-side sensors
+            else:
+                weight = 0.001  # Lowest weight for far side sensors
+            # weight = 1 / (abs(angle) + 1)  # Weight inversely proportional to angle
+            weighted_sum += sensor_readings[i] * weight
+            weight_total += weight
+
+    if weight_total > 0:
+        average_distance = weighted_sum / weight_total
+    else:
+        average_distance = -1  # Default value if all sensors are off track
+
+    # Adjust throttle based on curvature
+    # Reduce speed more aggressively for tight corners (small average distance)
+    curvature_factor = 0.5  # Factor to control the influence of curvature
+    if average_distance <  30 and S['speedX'] > 55:
+        print("[throttle control] TO CLOSE TO BOCHT!!")
+        R['accel'] -= curvature_factor * (30 - average_distance) / 30
+    else:
+        R['accel'] += (curvature_factor * (average_distance - 30) / 90)*2
+        print("[throttle control] NO BOCHT IN SIGHT!!")
+    print(f"[throttle control] Throttle after curvature adjustment: {R['accel']}")
+    print(f"[throttle control] avr_dis_to_track: {average_distance}")
+    print(f"[throttle control] speed: {S['speedX']} ")
+
+    R['brake'] = 0
+    front_dis = min([S["track"][9],S["track"][9],S["track"][9]])
+    # Brake when to close to edge
+    if front_dis < 50 and S['speedX'] > 40 and S['speedX'] < 80:
+        print("[throttle control] Front close: YES, no braking")
+        # R['accel'] = 0
+        R['brake']= 0
+    elif front_dis < 50 and S['speedX'] > 80:
+        print("[throttle control] Front close: YES and we are fast")
+        R['accel'] = 0
+        R['brake'] = 1
+    else:
+        print("[throttle control] Front close: NO")
+    
+    if S['speedX']  > 220 and front_dis < 70:
+        print("[throttle control] TOO FAST AND CLOSSSEE STOP ACCEL")
+        R['accel'] = 0
+        R['brake'] = 0
+    elif S['speedX']  > 120 and front_dis < 60.5:
+        print("[throttle control] TOO FAST AND CLOSSSEE BRAKINGG")
+        R['brake'] = 1
+        R['accel'] = 0
+    else:
+        print("[throttle control] NOT TOO FAST AND CLOSSEE")
+
+
+    if S['speedX']  < 80 and front_dis > 25:
+        R['accel'] += 0.2
+
+    print(f"[throttle control] front dis: {front_dis}")
+    # Low-Speed Boost
+    if S['speedX'] < 60:
+        R['accel'] += 1 
+
+    # Clip Acceleration Value Again
+    R['accel'] = clip(R['accel'], 0, 1)
+    print(f"[throttle control] Final clipped throttle: {R['accel']}")
+
+def improved_steering_control2(S, R, target_speed):
+    PI = math.pi
+
+    # Steer to Corner
+    R['steer'] = S['angle'] * 10 / PI
+    print(f"Initial steering based on angle: {R['steer']}")
+
+    # Steer to Center
+    R['steer'] -= S['trackPos'] * 0.30
+    print(f"Steering after track position adjustment: {R['steer']}")
+
+    # Avoid Opponents
+    opponent_readings = S['opponents']
+    opponent_angles = [i for i in range(-180, 190, 10)]
+
+    # Calculate opponent influence on steering
+    opponent_steer_adjustment = 0
+    for i in range(len(opponent_readings)):
+        if opponent_readings[i] < 50 and opponent_readings[i] != -1:
+            angle = opponent_angles[i]
+            weight = 1 / (abs(angle) + 1)
+            adjustment = -weight if angle < 0 else weight
+            opponent_steer_adjustment += adjustment * (50 - opponent_readings[i]) / 50
+    
+    R['steer'] += opponent_steer_adjustment * 0.1
+    print(f"Steering after opponent adjustment: {R['steer']}")
+
+    # High-Speed Adjustment Using Sensor Data
+    if S['speedX'] > target_speed * 0.8:
+        # Get sensor readings (assuming S['track'] holds the sensor distances)
+        sensor_readings = S['track']
+        angles = [-90, -75, -60, -45, -30, -20, -15, -10, -5, 0, 5, 10, 15, 20, 30, 45, 60, 75, 90]
+
+        # Calculate a weighted adjustment based on sensor data
+        weighted_sum = 0
+        weight_total = 0
+        for i in range(len(sensor_readings)):
+            if sensor_readings[i] != -1:
+                angle = angles[i]
+                if abs(angle) <= 10:
+                    weight = 1  # Highest weight for front-center sensors
+                elif abs(angle) <= 30:
+                    weight = 0.5  # Medium weight for front-side sensors
+                else:
+                    weight = 0.1  # Lowest weight for far side sensors
+                
+                weighted_sum += sensor_readings[i] * weight
+                weight_total += weight
+
+        if weight_total > 0:
+            average_distance = weighted_sum / weight_total
+        else:
+            average_distance = 100  # Default value if all sensors are off track
+
+        # Adjust steering based on the average distance
+        correction_factor = 0.01
+        if average_distance < 50:
+            R['steer'] -= correction_factor * (50 - average_distance) / 50
+        else:
+            R['steer'] += correction_factor * (average_distance - 50) / 150
+        print(f"Steering after high-speed adjustment: {R['steer']}")
+
+    # Clip the steering value to ensure it's within the valid range
+    R['steer'] = clip(R['steer'], -1, 1)
+    print(f"Final clipped steering: {R['steer']}")
+
+def improved_throttle_control2(S, R, target_speed):
+    PI = math.pi
+
+    # Throttle Control Based on Target Speed and Steering
+    if S['speedX'] < target_speed - (R['steer'] * 50):
+        R['accel'] += 0.01
+    else:
+        R['accel'] -= 0.01
+
+    # Low-Speed Boost
+    if S['speedX'] < 10:
+        R['accel'] += 1 / (S['speedX'] + 0.1)
+
+    # Traction Control System
+    if ((S['wheelSpinVel'][2] + S['wheelSpinVel'][3]) -
+       (S['wheelSpinVel'][0] + S['wheelSpinVel'][1]) > 5):
+        R['accel'] -= 0.2
+
+    # Clip Acceleration Value
+    R['accel'] = clip(R['accel'], 0, 1)
+    print(f"Throttle after basic control: {R['accel']}")
+
+    # Additional Speed Adjustment Based on Track Curvature
+    sensor_readings = S['track']
+    angles = [-90, -75, -60, -45, -30, -20, -15, -10, -5, 0, 5, 10, 15, 20, 30, 45, 60, 75, 90]
+
+    # Calculate a weighted curvature measure
+    weighted_sum = 0
+    weight_total = 0
+    for i in range(len(sensor_readings)):
+        if sensor_readings[i] != -1:
+            angle = angles[i]
+            weight = 1 / (abs(angle) + 1)  # Weight inversely proportional to angle
+            weighted_sum += sensor_readings[i] * weight
+            weight_total += weight
+
+    if weight_total > 0:
+        average_distance = weighted_sum / weight_total
+    else:
+        average_distance = 100  # Default value if all sensors are off track
+
+    # Adjust throttle based on curvature
+    curvature_factor = 0.5  # Factor to control the influence of curvature
+    if average_distance < 50:
+        R['accel'] -= curvature_factor * (50 - average_distance) / 50
+    else:
+        R['accel'] += curvature_factor * (average_distance - 50) / 150
+    print(f"Throttle after curvature adjustment: {R['accel']}")
+
+    # Adjust throttle based on proximity to opponents
+    opponent_readings = S['opponents']
+    opponent_distance_threshold = 30  # Threshold distance to consider for throttle adjustment
+    for distance in opponent_readings:
+        if distance != -1 and distance < opponent_distance_threshold:
+            R['accel'] -= 0.1 * (opponent_distance_threshold - distance) / opponent_distance_threshold
+    print(f"Throttle after opponent adjustment: {R['accel']}")
+
+    # Clip Acceleration Value Again
+    R['accel'] = clip(R['accel'], 0, 1)
+    print(f"Final clipped throttle: {R['accel']}")
+
 def drive_example(c):
     '''This is only an example. It will get around the track but the
     correct thing to do is write your own `drive()` function.'''
     S= c.S.d
     R= c.R.d
-    target_speed=100
+    target_speed=360
 
-    # out= S['trackPos']
-    # print(out)
+    out= S['trackPos']
+    # left = 1, right = -1 kleiner of groter dan 0.8 is wheel of track
+    print(f"track pos: {out}")
 
     # Damage Control
-    target_speed-= S['damage'] * .05
-    if target_speed < 25: target_speed= 25
+    # target_speed-= S['damage'] * .05
+    # if target_speed < 25: target_speed= 25
 
-    # Steer To Corner
-    R['steer']= S['angle']*10 / PI
-    # Steer To Center
-    R['steer']-= S['trackPos']*.10
-    R['steer']= clip(R['steer'],-1,1)
+    # # Steer To Corner
+    # R['steer']= S['angle']*10 / PI
+    # print(f"steering = {R['steer']}")
+    # # Steer To Center
+    # R['steer']-= S['trackPos']*.30
+    # R['steer']= clip(R['steer'],-1,1)
 
-    # Throttle Control
-    if S['speedX'] < target_speed - (R['steer']*50):
-        R['accel']+= .01
-    else:
-        R['accel']-= .01
-    if S['speedX']<10:
-       R['accel']+= 1/(S['speedX']+.1)
+    improved_steering_control(S,R, target_speed)
+    improved_throttle_control(S,R, target_speed)
+    speed_kmh = math.sqrt(S["speedX"]**2 + S["speedY"]**2)
+    print(f"speed: {speed_kmh}km/h")
+    print(f"accel: {R['accel']}")
 
-    # Traction Control System
-    if ((S['wheelSpinVel'][2]+S['wheelSpinVel'][3]) -
-       (S['wheelSpinVel'][0]+S['wheelSpinVel'][1]) > 5):
-       R['accel']-= .2
-    R['accel']= clip(R['accel'],0,1)
+    if S['gear']==0:
+        R['gear']=1
 
-    # Automatic Transmission
-    R['gear']=1
-    if S['speedX']>50:
-        R['gear']=2
-    if S['speedX']>80:
-        R['gear']=3
-    if S['speedX']>110:
-        R['gear']=4
-    if S['speedX']>140:
-        R['gear']=5
-    if S['speedX']>170:
-        R['gear']=6
+    # if R["accel"] > 0:
+    if S['rpm'] > 8000 and S['gear'] < 7:
+            R['gear'] = S['gear'] + 1
+
+    if S['rpm'] < 2500 and S['gear'] > 2:
+        R['gear'] = S['gear'] - 1
+    print(f"gear: {R['gear']}")
     return
 
 # ================ MAIN ================
